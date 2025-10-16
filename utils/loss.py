@@ -9,15 +9,14 @@ class LaplacianRegularizationLoss(nn.Module):
     def __init__(self):
         super().__init__()
     
-    def forward(self, grids):
-        # grids: [B, num_poses, H, W, 2]
-        grids = (torch.clamp(grids, -1.0, 1.0) + 1.0) / 2.0
+    def forward(self, disps):
+        # disps: [B, num_poses, H, W, 2]
         
-        center = grids[..., 1:-1, 1:-1, :]
-        up     = grids[...,  :-2, 1:-1, :]
-        down   = grids[...,   2:, 1:-1, :]
-        left   = grids[..., 1:-1,  :-2, :]
-        right  = grids[..., 1:-1,   2:, :]
+        center = disps[..., 1:-1, 1:-1, :]
+        up     = disps[...,  :-2, 1:-1, :]
+        down   = disps[...,   2:, 1:-1, :]
+        left   = disps[..., 1:-1,  :-2, :]
+        right  = disps[..., 1:-1,   2:, :]
         
         laplacian = 4 * center - (up + down + left + right)
         
@@ -43,13 +42,10 @@ class TemporalSmoothnessLoss(nn.Module):
     def __init__(self):
         super().__init__()
     
-    def forward(self, grids):
-        B, _, H, W, _ = grids.shape
+    def forward(self, disps):
+        B, _, H, W, _ = disps.shape
         
-        canonical = canonical_2d(H, W, grids.device)[None, ...]
-        displacements = grids - canonical
-        
-        relative_disps = displacements[:, 1:] - displacements[:, :-1]  # [B, num_poses-1, H, W, 2]
+        relative_disps = disps[:, 1:] - disps[:, :-1]  # [B, num_poses-1, H, W, 2]
         relative_disps_flat = torch.flatten(relative_disps, start_dim=2)
         
         cos_sims = F.cosine_similarity(
@@ -67,20 +63,15 @@ class FlowAlignLoss(nn.Module):
         self.flow_threshold = flow_threshold
         self.eps = eps
     
-    def forward(self, grids, flow):
-        _, _, H, W, _ = grids.shape
-        
-        canonical = canonical_2d(H, W, grids.device)[None, ...]
-        displacements = grids - canonical
-        
+    def forward(self, disps, flow):
         flow_directions = flow[:, :2, :, :].permute(0, 2, 3, 1)[:, None, ...]  # [B, 1, H, W, 2]
-        flow_mags = flow[:, 2, :, :][:, None, :, :]  # [B, 1, H, W]
+        flow_mags = flow[:, 2:, :, :]  # [B, 1, H, W]
         
         # normalizing disps (cosine similarity loss) 
-        # disp_norm = torch.sqrt((displacements ** 2).sum(dim=-1, keepdim=True) + self.eps)
-        # displacements = displacements / (disp_norm + self.eps)  # [B, num_poses, H, W, 2]
+        # disp_norm = torch.sqrt((disps ** 2).sum(dim=-1, keepdim=True) + self.eps)
+        # disps = disps / (disp_norm + self.eps)  # [B, num_poses, H, W, 2]
         
-        dot_products = (displacements * flow_directions).sum(dim=-1)  # [B, num_poses, H, W]
+        dot_products = (disps * flow_directions).sum(dim=-1)  # [B, num_poses, H, W]
         dot_products = dot_products * (flow_mags >= self.flow_threshold)
         
         loss_per_pixel = F.relu(-dot_products) # ignore sharp angles
@@ -93,19 +84,19 @@ class CompositeLoss(nn.Module):
     def __init__(self, weights=[1, 0.1, 1, 1]):
         super().__init__()
         self.weights = weights
-        self.blur_fn = nn.L1Loss()
-        self.lap_fn = LaplacianRegularizationLoss()
-        self.geo_fn = GeometricConsistencyLoss()
-        self.comp_fn = nn.L1Loss()
+        self.loss_blur = nn.L1Loss()
+        self.loss_lap = LaplacianRegularizationLoss()
+        self.loss_geo = GeometricConsistencyLoss()
+        self.loss_comp = nn.L1Loss()
     
     def forward(self, model, comp_net, blur_img, sharp_img, num_poses):       
         results = blur_synthesis(model, blur_img, sharp_img, (1, 0), num_poses, comp_net)
         
         total_loss = (
-            self.weights[0] * self.blur_fn(results['pred_blur'], blur_img) +
-            self.weights[1] * self.lap_fn(results['grids']) +
-            self.weights[2] * self.geo_fn(results['cycle_warped_img'], sharp_img) +
-            self.weights[3] * self.comp_fn(results['pred_blur_comp'], blur_img)
+            self.weights[0] * self.loss_blur(results['pred_blur'], blur_img) +
+            self.weights[1] * self.loss_lap(results['disps']) +
+            self.weights[2] * self.loss_geo(results['cycle_warped_img'], sharp_img) +
+            self.weights[3] * self.loss_comp(results['pred_blur_comp'], blur_img)
         )
         
         return results, total_loss

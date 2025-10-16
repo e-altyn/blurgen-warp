@@ -106,107 +106,109 @@ def canonical_2d(H, W, device='cpu', in_pixel_space=False):
 
 
 def vec_field_gen(motion_results, control_params, img_size):
-    """Vector field generation.
+    """Composing final displacement field from model's outputs and augmentation parameters.
     
     Args:
         motion_results: tuple of (r, t, amp_local, phase_local)
             - r: [B, num_poses * 3] rotation parameters
             - t: [B, num_poses * 3] translation parameters
-            - amp_local: [B, num_poses, h, 2, w] predicted in-frame displacements
-            - phase_local: [B, num_poses, h, w] local phase
+            - displacements: [B, num_poses, h, w, 2] predicted in-frame displacements
         control_params: tuple of (amp_control, phase_control)
             - amp_control: scalar or broadcastable tensor
             - phase_control: scalar or broadcastable tensor
         img_size: torch.Size([B, c, H, W])
         
     Returns:
-        total_grid: [B, num_poses, H, W, 2]
-        total_grid_invert: [B, num_poses, H, W, 2]
-        displacements : [B, num_poses, H, W, 2] in pixel space (model predictions)
+        disps: [B, num_poses, H, W, 2]
+        didsp_inv: [B, num_poses, H, W, 2]
     """
-    r, t, amp_local, phase_local = motion_results
+    r, t, displacements = motion_results
     amp_control, phase_control = control_params
     
     B, _, H, W = img_size
-    num_poses = amp_local.shape[1]
+    num_poses = displacements.shape[1]
     
     # Reshape r and t: [B, num_poses * 3] -> [B, num_poses, 3] -> [B * num_poses, 3]
     r = r.reshape(B, num_poses, 3).reshape(B * num_poses, 3)
     t = t.reshape(B, num_poses, 3).reshape(B * num_poses, 3)
     
-    # Batch compute all c2w matrices at once
     rigid_2d = make_c2w(r, t)  # [B * num_poses, 3, 4]
     
-    # Get canonical grid and move to device
-    grid_2d_cano = canonical_2d(H, W).to(r.device)  # [1, H, W, 2]
+    grid_2d_rigid = grid2pixel(F.affine_grid(
+        rigid_2d[:, :2, :3], 
+        [B * num_poses, img_size[1], H, W]
+    ))  # [B * num_poses, H, W, 2]
     
-    # Compute rigid transform for all poses at once
-    grid_2d_rigid = F.affine_grid(rigid_2d[:, :2, :3], [B * num_poses, img_size[1], H, W])  # [B * num_poses, H, W, 2]
+    grid_2d_cano = canonical_2d(H, W, device=r.device, in_pixel_space=True)  # [1, H, W, 2]
     
     # Compute residual
     grid_2d_cano_expanded = grid_2d_cano.expand(B * num_poses, -1, -1, -1)
-    res_grid_2d_rigid = grid_2d_rigid - grid_2d_cano_expanded[..., :2]  # [B * num_poses, H, W, 2]
+    rigid_disps = grid_2d_rigid - grid_2d_cano_expanded[..., :2]  # [B * num_poses, H, W, 2]
     
     # Convert to polar coordinates
-    amp_global, phase_global = complex_to_polar(res_grid_2d_rigid)  # [B * num_poses, H, W]
+    amp_local, phase_local = complex_to_polar(displacements)
+    amp_global, phase_global = complex_to_polar(rigid_disps)
     
     # Reshape back to [B, num_poses, H, W] for element-wise operations
+    amp_local = amp_local.reshape(B, num_poses, H, W)
+    phase_local = phase_local.reshape(B, num_poses, H, W)
     amp_global = amp_global.reshape(B, num_poses, H, W)
     phase_global = phase_global.reshape(B, num_poses, H, W)
     
     # Apply local and control parameters (fully vectorized)
-    res_grid_3d_aware = polar_to_complex(
+    final_disps = polar_to_complex(
         amp_global * amp_local * amp_control,
         phase_global + phase_local + phase_control,
     )  # [B, num_poses, H, W, 2]
     
-    # Add canonical grid using broadcasting
-    grid_2d_cano_broadcast = grid_2d_cano[None, ...].expand(B, num_poses, -1, -1, -1)
-    total_grid = res_grid_3d_aware + grid_2d_cano_broadcast
-    total_grid_invert = -res_grid_3d_aware + grid_2d_cano_broadcast
+    return final_disps
+
+
+def grid_sample(img, disps):
+    """Grid sample along displacement fields.
     
-    return total_grid, total_grid_invert
+    Args:
+        img: [N, 3, H, W]
+        disps: [N, H, W, 2]
+    Returns:
+        warped: [N, 3, H, W]
+    """
+    _, _, H, W = disps.shape
+    grids = pixel2grid(disps + canonical_2d(H, W, device=disps.device, in_pixel_space=True), align_corners=False)
+    
+    return F.grid_sample(img, grids, align_corners=False, mode='bilinear', padding_mode='zeros')
+    
 
 
 def blur_synthesis(model, blur_img, sharp_img, control_params=(1, 0), 
                    num_poses=16, compensation_net=None):
-    # Generate grids
-    grids, grids_inv = vec_field_gen(
-        model(blur_img), control_params, sharp_img.size()
-    )
     
     B, C, H, W = sharp_img.shape
     
-    # Expand sharp_img: [B, C, H, W] -> [B*num_poses, C, H, W]
+    disps = vec_field_gen(model(blur_img), control_params, sharp_img.size())
+    
+    # [B, C, H, W] -> [B * num_poses, C, H, W]
     sharp_img_expanded = sharp_img.unsqueeze(1).expand(B, num_poses, C, H, W)
-    sharp_img_batched = sharp_img_expanded.reshape(B * num_poses, C, H, W)
+    sharp_img_expanded = sharp_img_expanded.reshape(B * num_poses, H, W, 2)
+    disps_reshaped = disps.reshape(B * num_poses, H, W, 2)
     
-    # Reshape grids: [B, num_poses, H, W, 2] -> [B*num_poses, H, W, 2]
-    grids_batched = grids.reshape(B * num_poses, H, W, 2)
-    grids_inv_batched = grids_inv.reshape(B * num_poses, H, W, 2)
+    warped = grid_sample(
+        sharp_img_expanded, disps_reshaped
+    ).reshape(B, num_poses, C, H, W)
     
-    # Vectorized warping
-    warped = F.grid_sample(sharp_img_batched, grids_batched)
-    
-    # Add noise
     gaussian_noise = torch.randn_like(warped, requires_grad=False) * 0.0112
     warped = torch.clamp(warped + gaussian_noise, -1, 1)
     
-    # Cycle warping
-    cycle_warped = F.grid_sample(warped, grids_inv_batched)
+    cycle_warped = grid_sample(
+        warped, -disps_reshaped
+    ).reshape(B, num_poses, C, H, W)
     
-    # Reshape back: [B*num_poses, C, H, W] -> [B, num_poses, C, H, W]
-    warped = warped.reshape(B, num_poses, C, H, W)
-    cycle_warped = cycle_warped.reshape(B, num_poses, C, H, W)
-    
-    # Average across poses
     warped_mean = warped.mean(dim=1)
     
     results = {
         'pred_blur': warped_mean,
         'cycle_warped_img': cycle_warped,
-        'grids': grids,
-        'grids_inv': grids_inv
+        'disps': disps
     }
     
     if compensation_net is not None:
@@ -229,7 +231,7 @@ def blur_data_augmentation(blur_img, sharp_img, model):
     return results['pred_blur']
 
 
-def grid2pixel(grid, H, W, align_corners=False):
+def grid2pixel(grid, align_corners=False):
     """
     Convert normalized grid coordinates to pixel coordinates.
     
@@ -244,6 +246,7 @@ def grid2pixel(grid, H, W, align_corners=False):
         Tensor of same shape with pixel coordinates
     """
     pixel_coords = grid.clone()
+    H, W = grid.shape[-3:-1]
     
     if align_corners:
         # Map [-1, 1] to [0, W-1] for x and [0, H-1] for y
@@ -257,7 +260,7 @@ def grid2pixel(grid, H, W, align_corners=False):
     return pixel_coords
 
 
-def pixel2grid(pixel_coords, H, W, align_corners=False):
+def pixel2grid(pixel_coords, align_corners=False):
     """
     Convert pixel coordinates to normalized grid coordinates.
     
@@ -272,6 +275,7 @@ def pixel2grid(pixel_coords, H, W, align_corners=False):
         Tensor of same shape with normalized coordinates in range [-1, 1]
     """
     grid = pixel_coords.clone()
+    H, W = grid.shape[-3:-1]
     
     if align_corners:
         # Map [0, W-1] to [-1, 1] for x and [0, H-1] to [-1, 1] for y
