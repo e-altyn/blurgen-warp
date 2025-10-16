@@ -6,7 +6,7 @@ import torch.distributed as dist
 from PIL import Image
 import matplotlib.cm as cm
 
-from utils.synthesis import canonical_2d, grid2pixel
+from utils.synthesis import canonical_2d, grids2disps
 
 
 def get_env():
@@ -90,7 +90,7 @@ def get_npy(path):
     return img.astype(np.float32)
 
 
-def visualize_blur_trajectories(grids, output_path=None, spacing=20, colormap=None):
+def visualize_blur_trajectories(disps, output_path=None, spacing=20, colormap=None):
     """
     Visualize blur trajectories from normalized grids with optional gradient coloring.
     
@@ -111,7 +111,7 @@ def visualize_blur_trajectories(grids, output_path=None, spacing=20, colormap=No
     --------
     np.ndarray : The visualization image (RGB if colormap, grayscale if None)
     """
-    num_poses, H, W, _ = grids.shape
+    num_poses, H, W, _ = disps.shape
     
     # Calculate number of grid points that will fit
     num_y = H // spacing
@@ -132,12 +132,8 @@ def visualize_blur_trajectories(grids, output_path=None, spacing=20, colormap=No
     y_ref_flat = y_ref_grid.flatten()
     x_ref_flat = x_ref_grid.flatten()
     
-    # Grids -> pixel displacement fields
-    displacement_fields = grid2pixel(grids, H, W) \
-        - canonical_2d(H, W, in_pixel_space=True)  # [num_poses, H, W, 2]
-    
     # Centering
-    displacement_fields -= np.mean(displacement_fields, axis=0, keepdims=True)
+    disps -= np.mean(disps, axis=0, keepdims=True)
     
     # Decide on output type based on colormap
     if colormap is None:
@@ -164,8 +160,8 @@ def visualize_blur_trajectories(grids, output_path=None, spacing=20, colormap=No
             color = 255
         
         # Extract displacements for all reference points at this pose
-        dy = displacement_fields[pose_idx, y_ref_flat, x_ref_flat, 1]
-        dx = displacement_fields[pose_idx, y_ref_flat, x_ref_flat, 0]
+        dy = disps[pose_idx, y_ref_flat, x_ref_flat, 1]
+        dx = disps[pose_idx, y_ref_flat, x_ref_flat, 0]
         
         # Calculate warped positions (vectorized)
         y_warped = np.round(y_ref_flat + dy).astype(int)
