@@ -93,71 +93,81 @@ def polar_to_complex(amplitude, phase):
 
 
 def canonical_2d(H, W, device='cpu', in_pixel_space=True):
-    """Returns [1, H, W, 2] canionical grid."""
-    identity = torch.tensor([[[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]])
-    grid = F.affine_grid(identity, [1, 3, H, W], 
-                         align_corners=False).to(device)
+    """Returns [1, H, W, 2] canonical grid.
+    
+    Args:
+        H: Image height in pixels
+        W: Image width in pixels
+        device: Device to create tensors on
+        in_pixel_space: If True, returns pixel coordinates; if False, returns normalized [-1, 1]
+    
+    Returns:
+        Tensor of shape [1, H, W, 2] with grid coordinates
+    """
+    identity = torch.tensor([[[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]], device=device)
+    grid = F.affine_grid(identity, [1, 3, H, W], align_corners=False)
+    
     if in_pixel_space:
-        return grids2disps(grid, align_corners=False)
+        pixel_grid = torch.empty_like(grid)
+        pixel_grid[..., 0] = (grid[..., 0] + 1) * W / 2
+        pixel_grid[..., 1] = (grid[..., 1] + 1) * H / 2
+        return pixel_grid
     else:
         return grid
 
 
 def grids2disps(grids, align_corners=False):
     """
-    Convert normalized grids coordinates to pixel coordinates.
+    Convert normalized grid coordinates to pixel coordinates.
     
     Args:
-        grids: Tensor of shape (..., 2) with normalized coordinates in range [-1, 1]
-              where [..., 0] is x (width) and [..., 1] is y (height)
-        H: Image height in pixels
-        W: Image width in pixels
+        grids: Tensor of shape [..., H, W, 2] with normalized coordinates in range [-1, 1]
+               where [..., 0] is x (width) and [..., 1] is y (height)
         align_corners: If True, uses corner pixel centers; if False, uses pixel edges
-        
+    
     Returns:
         Tensor of same shape with pixel coordinates
     """
     H, W = grids.shape[-3:-1]
-    disps = grids - canonical_2d(H, W, in_pixel_space=False)
+    pixel_coords = torch.empty_like(grids)
     
     if align_corners:
         # Map [-1, 1] to [0, W-1] for x and [0, H-1] for y
-        disps[..., 0] = (grids[..., 0] + 1) * (W - 1) / 2
-        disps[..., 1] = (grids[..., 1] + 1) * (H - 1) / 2
+        pixel_coords[..., 0] = (grids[..., 0] + 1) * (W - 1) / 2
+        pixel_coords[..., 1] = (grids[..., 1] + 1) * (H - 1) / 2
     else:
         # Map [-1, 1] to [0, W] for x and [0, H] for y
-        disps[..., 0] = (grids[..., 0] + 1) * W / 2
-        disps[..., 1] = (grids[..., 1] + 1) * H / 2
+        pixel_coords[..., 0] = (grids[..., 0] + 1) * W / 2
+        pixel_coords[..., 1] = (grids[..., 1] + 1) * H / 2
     
-    return disps
+    return pixel_coords
 
 
 def disps2grids(disps, align_corners=False):
     """
-    Convert pixel coordinates to normalized grids coordinates.
+    Convert pixel coordinates to normalized grid coordinates.
     
     Args:
-        disps: Tensor of shape (..., 2) with pixel coordinates
-                      where [..., 0] is x (width) and [..., 1] is y (height)
-        H: Image height in pixels
-        W: Image width in pixels
+        disps: Tensor of shape [..., H, W, 2] with pixel coordinates
+               where [..., 0] is x (width) and [..., 1] is y (height)
         align_corners: If True, uses corner pixel centers; if False, uses pixel edges
-        
+    
     Returns:
         Tensor of same shape with normalized coordinates in range [-1, 1]
     """
     H, W = disps.shape[-3:-1]
+    grids = torch.empty_like(disps)
     
     if align_corners:
         # Map [0, W-1] to [-1, 1] for x and [0, H-1] to [-1, 1] for y
-        disps[..., 0] = 2 * disps[..., 0] / (W - 1) - 1
-        disps[..., 1] = 2 * disps[..., 1] / (H - 1) - 1
+        grids[..., 0] = 2 * disps[..., 0] / (W - 1) - 1
+        grids[..., 1] = 2 * disps[..., 1] / (H - 1) - 1
     else:
         # Map [0, W] to [-1, 1] for x and [0, H] to [-1, 1] for y
-        disps[..., 0] = 2 * disps[..., 0] / W - 1
-        disps[..., 1] = 2 * disps[..., 1] / H - 1
+        grids[..., 0] = 2 * disps[..., 0] / W - 1
+        grids[..., 1] = 2 * disps[..., 1] / H - 1
     
-    return disps + canonical_2d(H, W, in_pixel_space=False)
+    return grids
 
 
 def vec_field_gen(motion_results, control_params, img_size):
@@ -200,7 +210,7 @@ def vec_field_gen(motion_results, control_params, img_size):
     
     # Compute residual
     grid_2d_cano_expanded = grid_2d_cano.expand(B * num_poses, -1, -1, -1)
-    rigid_disps = grid_2d_rigid - grid_2d_cano_expanded[..., :2]  # [B * num_poses, H, W, 2]
+    rigid_disps = grid_2d_rigid - grid_2d_cano_expanded  # [B * num_poses, H, W, 2]
     
     # Convert to polar coordinates
     amp_local, phase_local = complex_to_polar(displacements)
@@ -246,7 +256,7 @@ def blur_synthesis(model, blur_img, sharp_img, control_params=(1, 0),
     
     # [B, C, H, W] -> [B * num_poses, C, H, W]
     sharp_img_expanded = sharp_img.unsqueeze(1).expand(B, num_poses, C, H, W)
-    sharp_img_expanded = sharp_img_expanded.reshape(B * num_poses, H, W)
+    sharp_img_expanded = sharp_img_expanded.reshape(B * num_poses, C, H, W)
     disps_reshaped = disps.reshape(B * num_poses, H, W, 2)
     
     warped = grid_sample(
