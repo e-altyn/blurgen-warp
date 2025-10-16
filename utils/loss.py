@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from synthesis import canonical_2d, blur_synthesis
+from utils.synthesis import canonical_2d, blur_synthesis
 
     
 class LaplacianRegularizationLoss(nn.Module):
@@ -46,7 +46,7 @@ class TemporalSmoothnessLoss(nn.Module):
     def forward(self, grids):
         B, _, H, W, _ = grids.shape
         
-        canonical = canonical_2d(H, W, grids.devices)[None, ...]
+        canonical = canonical_2d(H, W, grids.device)[None, ...]
         displacements = grids - canonical
         
         relative_disps = displacements[:, 1:] - displacements[:, :-1]  # [B, num_poses-1, H, W, 2]
