@@ -13,10 +13,10 @@ class TrainAugConfig:
     lr: float = 1e-3
     weight_decay: float = 1e-4
     epochs: int = 1000
-    val_portion: float = 0.1
+    val_portion: float = 0.5
     
     checkpoint_dir: str = ".checkpoints"
-    val_freq: int = 5
+    val_freq: int = 100
     train_seed: int = 42
     
     nafnet_grid_params: dict = field(default_factory=lambda: {

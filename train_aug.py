@@ -4,7 +4,6 @@ import time
 import torch
 import torch.distributed as dist
 
-from torch.amp import autocast, GradScaler
 from torch.nn.utils import clip_grad_norm_
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
@@ -26,7 +25,7 @@ from utils.loss import CompositeLoss
 # ========================= SETUP FUNCTIONS ========================= #
 
 def setup_training_components(model, comp_net, lr, weight_decay, num_epochs, loss_weights):
-    """Initialize optimizer, scheduler, scaler, and loss function."""
+    """Initialize optimizer, scheduler, and loss function."""
     loss_fn = CompositeLoss(loss_weights)
     
     params = list(model.parameters()) + list(comp_net.parameters())
@@ -37,9 +36,8 @@ def setup_training_components(model, comp_net, lr, weight_decay, num_epochs, los
     ], lr=lr, weight_decay=weight_decay, fused=True)
 
     scheduler = CosineAnnealingLR(optimizer, T_max=num_epochs, eta_min=1e-6)
-    scaler = GradScaler()
     
-    return loss_fn, optimizer, scheduler, scaler, params
+    return loss_fn, optimizer, scheduler, params
 
 
 def setup_metrics(cfg, device):
@@ -54,7 +52,7 @@ def setup_metrics(cfg, device):
 # ========================= TRAINING EPOCH ========================= #
 
 def train_epoch(model, comp_net, train_loader, loss_fn, optimizer, 
-                    scheduler, scaler, params, num_poses, device, epoch):
+                    scheduler, params, num_poses, device, epoch):
     model.train()
     comp_net.train()
     train_loader.sampler.set_epoch(epoch - 1)
@@ -67,15 +65,12 @@ def train_epoch(model, comp_net, train_loader, loss_fn, optimizer,
         blur_img = sample["blur"].to(device, non_blocking=True)
         sharp_img = sample["sharp"].to(device, non_blocking=True)
         
-        with autocast(device_type="cuda"):
-            _, loss = loss_fn(model, comp_net, blur_img, sharp_img, num_poses)
-            loss_sum += loss.item()
+        _, loss = loss_fn(model, comp_net, blur_img, sharp_img, num_poses)
+        loss_sum += loss.item()
         
-        scaler.scale(loss).backward()
-        scaler.unscale_(optimizer)
+        loss.backward()
         clip_grad_norm_(params, max_norm=1.0)
-        scaler.step(optimizer)
-        scaler.update()
+        optimizer.step()
     
     scheduler.step()
     
@@ -97,15 +92,19 @@ def validate_epoch(model, comp_net, val_loader, loss_fn, metrics, num_poses, dev
             blur_img = sample["blur"].to(device, non_blocking=True)
             sharp_img = sample["sharp"].to(device, non_blocking=True)
             
-            with autocast(device_type="cuda"):
-                results, loss = loss_fn(model, comp_net, blur_img, sharp_img, num_poses)
-                
-                pred = torch.clamp(results['pred_blur'], -1, 1)
-                psnr_metric.update(pred, blur_img)
-                ssim_metric.update(pred, blur_img)
-                lpips_metric.update(pred, blur_img)
+            results, loss = loss_fn(model, comp_net, blur_img, sharp_img, num_poses)
+            
+            pred = torch.clamp(results['pred_blur'], -1, 1)
+            del results
+            
+            psnr_metric.update(pred, blur_img)
+            ssim_metric.update(pred, blur_img)
+            lpips_metric.update(pred, blur_img)
+            
+            del pred, blur_img, sharp_img
             
             val_loss_sum += loss.item()
+            del loss
     
     val_loss = sync_tensor(val_loss_sum / len(val_loader))
     psnr = sync_torchmetrics(psnr_metric)
@@ -157,7 +156,7 @@ def train_aug(cfg, model, comp_net, train_loader, val_loader, num_epochs,
     
     rank, world_size, local_rank, device = get_env()
     
-    loss_fn, optimizer, scheduler, scaler, params = setup_training_components(
+    loss_fn, optimizer, scheduler, params = setup_training_components(
         model, comp_net, lr, weight_decay, num_epochs, loss_weights
     )
     metrics = setup_metrics(cfg, device)
@@ -167,7 +166,7 @@ def train_aug(cfg, model, comp_net, train_loader, val_loader, num_epochs,
         start_time = time.time()
         train_loss = train_epoch(
             model, comp_net, train_loader, loss_fn, optimizer, 
-            scheduler, scaler, params, num_poses, device, epoch
+            scheduler, params, num_poses, device, epoch
         )
         log_training(epoch, num_epochs, train_loss, time.time() - start_time, rank)
         

@@ -273,8 +273,7 @@ def blur_synthesis(model_output, blur_img, sharp_img, control_params=None,
         sharp_img_expanded, disps_reshaped
     ).reshape(B, num_poses, C, H, W)
     
-    gaussian_noise = torch.randn_like(warped) * 0.0112
-    warped = torch.clamp(warped + gaussian_noise, -1, 1)
+    warped = torch.clamp(warped, -1, 1)
     
     warped_reshaped = warped.reshape(B * num_poses, C, H, W)
     cycle_warped = grid_sample(
