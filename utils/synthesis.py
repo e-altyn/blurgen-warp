@@ -251,7 +251,7 @@ def grid_sample(img, disps):
     return F.grid_sample(img, grids, align_corners=False, mode='bilinear', padding_mode='zeros')
 
 
-def blur_synthesis(model, blur_img, sharp_img, control_params=None,
+def blur_synthesis(model_output, blur_img, sharp_img, control_params=None,
                    num_poses=16, compensation_net=None):
     B, C, H, W = sharp_img.shape
     
@@ -262,7 +262,7 @@ def blur_synthesis(model, blur_img, sharp_img, control_params=None,
             torch.zeros(B, device=device)
         )
     
-    disps = vec_field_gen(model(blur_img), sharp_img.shape, control_params)
+    disps = vec_field_gen(model_output, sharp_img.shape, control_params)
     
     # [B, C, H, W] -> [B * num_poses, C, H, W]
     sharp_img_expanded = sharp_img.unsqueeze(1).expand(B, num_poses, C, H, W)
@@ -273,7 +273,7 @@ def blur_synthesis(model, blur_img, sharp_img, control_params=None,
         sharp_img_expanded, disps_reshaped
     ).reshape(B, num_poses, C, H, W)
     
-    gaussian_noise = torch.randn_like(warped, requires_grad=False) * 0.0112
+    gaussian_noise = torch.randn_like(warped) * 0.0112
     warped = torch.clamp(warped + gaussian_noise, -1, 1)
     
     warped_reshaped = warped.reshape(B * num_poses, C, H, W)
@@ -304,6 +304,6 @@ def blur_data_augmentation(blur_img, sharp_img, model):
     )
 
     target_shuf = sharp_img[torch.randperm(B)]
-    results = blur_synthesis(model, blur_img, target_shuf, control_params)
+    results = blur_synthesis(model(blur_img), blur_img, target_shuf, control_params)
     
     return results['pred_blur']

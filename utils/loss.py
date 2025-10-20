@@ -92,8 +92,8 @@ class CompositeLoss(nn.Module):
         self.loss_comp = nn.L1Loss()
         self.weights = weights if weights else [1, 0.1, 1, 1]
     
-    def forward(self, model, comp_net, blur_img, sharp_img, num_poses):       
-        results = blur_synthesis(model, blur_img, sharp_img, None, num_poses, comp_net)
+    def forward(self, model, comp_net, blur_img, sharp_img, num_poses):    
+        results = blur_synthesis(model(blur_img), blur_img, sharp_img, None, num_poses, comp_net)
         
         total_loss = (
             self.weights[0] * self.loss_blur(results['pred_blur'], blur_img) +
