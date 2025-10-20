@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 
 @dataclass
 class TrainAugConfig:
-    num_workers: int = 4
+    num_workers: int = 8
     batch_size: int = 32
     patch_size: int = 256
     data_range: float = 2.0
