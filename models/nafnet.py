@@ -231,11 +231,13 @@ class NAFNetGrid(nn.Module):
             x = decoder(x)
 
         x = self.ending(x)
+    
+        B, C, H_out, W_out = x.shape
 
         r, t = x_mlp.chunk(2, dim=1)
-        displacements = x.reshape(B, 2, self.num_poses, H, W).permute(0, 2, 3, 4, 1)
-        
-        return r, t, displacements[:, :, :H, :W, :]
+        displacements = x.reshape(B, 2, self.num_poses, H_out, W_out).permute(0, 2, 3, 4, 1)
+
+        return r, t, displacements[:, :, :H_out, :W_out, :]
 
     def check_image_size(self, x):
         _, _, h, w = x.size()
