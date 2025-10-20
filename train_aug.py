@@ -214,9 +214,9 @@ def setup_models(cfg, device, local_rank):
     model = DDP(model, device_ids=[local_rank])
     comp_net = DDP(comp_net, device_ids=[local_rank])
     
-    if hasattr(torch, 'compile'):
-        model = torch.compile(model)
-        comp_net = torch.compile(comp_net)
+    #if hasattr(torch, 'compile'):
+    #    model = torch.compile(model)
+    #    comp_net = torch.compile(comp_net)
     
     return model, comp_net
 

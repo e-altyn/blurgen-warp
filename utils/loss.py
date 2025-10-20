@@ -6,6 +6,7 @@ from utils.synthesis import canonical_2d, blur_synthesis
 
     
 class LaplacianRegularizationLoss(nn.Module):
+    """Penalizes local discontinuity"""
     def __init__(self):
         super().__init__()
     
@@ -20,11 +21,12 @@ class LaplacianRegularizationLoss(nn.Module):
         
         laplacian = 4 * center - (up + down + left + right)
         
-        return torch.mean(torch.sum(laplacian**2, dim=(2, 3, 4)))
+        return torch.mean(laplacian**2)
 
 
 
 class GeometricConsistencyLoss(nn.Module):
+    """Penalizes divergency and non-uniformity along vector directions"""
     def __init__(self):
         super().__init__()
         self.l1 = nn.L1Loss()
@@ -39,6 +41,7 @@ class GeometricConsistencyLoss(nn.Module):
 
 
 class TemporalSmoothnessLoss(nn.Module):
+    """Promotes temoral order"""
     def __init__(self):
         super().__init__()
     
@@ -81,16 +84,16 @@ class FlowAlignLoss(nn.Module):
 
 class CompositeLoss(nn.Module):
     """!!! HARDCODED !!!"""
-    def __init__(self, weights=[1, 0.1, 1, 1]):
+    def __init__(self, weights=None):
         super().__init__()
-        self.weights = weights
         self.loss_blur = nn.L1Loss()
         self.loss_lap = LaplacianRegularizationLoss()
         self.loss_geo = GeometricConsistencyLoss()
         self.loss_comp = nn.L1Loss()
+        self.weights = weights if weights else [1, 0.1, 1, 1]
     
     def forward(self, model, comp_net, blur_img, sharp_img, num_poses):       
-        results = blur_synthesis(model, blur_img, sharp_img, (1, 0), num_poses, comp_net)
+        results = blur_synthesis(model, blur_img, sharp_img, None, num_poses, comp_net)
         
         total_loss = (
             self.weights[0] * self.loss_blur(results['pred_blur'], blur_img) +

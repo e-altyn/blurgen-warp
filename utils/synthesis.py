@@ -170,7 +170,7 @@ def disps2grids(disps, align_corners=False):
     return grids
 
 
-def vec_field_gen(motion_results, control_params, img_size):
+def vec_field_gen(motion_results, img_size, control_params=None):
     """Composing final displacement field from model's outputs and augmentation parameters.
     
     Args:
@@ -190,8 +190,13 @@ def vec_field_gen(motion_results, control_params, img_size):
     B, _, H, W = img_size
     
     r, t, displacements = motion_results
-    amp_control = control_params[0][:, None, None, None]
-    phase_control = control_params[1][:, None, None, None]
+    
+    if control_params is None:
+        amp_control = torch.ones([B, 1, 1, 1], device=r.device)
+        phase_control = torch.zeros([B, 1, 1, 1], device=r.device)
+    else:
+        amp_control = control_params[0][:, None, None, None]
+        phase_control = control_params[1][:, None, None, None]
     
     num_poses = displacements.shape[1]
     
@@ -240,19 +245,24 @@ def grid_sample(img, disps):
     Returns:
         warped: [N, 3, H, W]
     """
-    _, _, H, W = disps.shape
+    N, H, W, _ = disps.shape
     grids = disps2grids(disps + canonical_2d(H, W, device=disps.device), align_corners=False)
     
     return F.grid_sample(img, grids, align_corners=False, mode='bilinear', padding_mode='zeros')
-    
 
 
-def blur_synthesis(model, blur_img, sharp_img, control_params=(1, 0), 
+def blur_synthesis(model, blur_img, sharp_img, control_params=None,
                    num_poses=16, compensation_net=None):
-    
     B, C, H, W = sharp_img.shape
     
-    disps = vec_field_gen(model(blur_img), control_params, sharp_img.size())
+    if control_params is None:
+        device = blur_img.device
+        control_params = (
+            torch.ones(B, device=device),
+            torch.zeros(B, device=device)
+        )
+    
+    disps = vec_field_gen(model(blur_img), sharp_img.shape, control_params)
     
     # [B, C, H, W] -> [B * num_poses, C, H, W]
     sharp_img_expanded = sharp_img.unsqueeze(1).expand(B, num_poses, C, H, W)
@@ -266,8 +276,9 @@ def blur_synthesis(model, blur_img, sharp_img, control_params=(1, 0),
     gaussian_noise = torch.randn_like(warped, requires_grad=False) * 0.0112
     warped = torch.clamp(warped + gaussian_noise, -1, 1)
     
+    warped_reshaped = warped.reshape(B * num_poses, C, H, W)
     cycle_warped = grid_sample(
-        warped, -disps_reshaped
+        warped_reshaped, -disps_reshaped
     ).reshape(B, num_poses, C, H, W)
     
     warped_mean = warped.mean(dim=1)
@@ -288,8 +299,8 @@ def blur_synthesis(model, blur_img, sharp_img, control_params=(1, 0),
 def blur_data_augmentation(blur_img, sharp_img, model):
     B = blur_img.size()[0]
     control_params = (
-        torch.empty(B, 1, 1).uniform_(1.0, 2.0),
-        torch.empty(B, 1, 1).uniform_(-1.0, 1.0) * (math.pi / 2.0)
+        torch.empty(B, 1, 1, 1).uniform_(1.0, 2.0),
+        torch.empty(B, 1, 1, 1).uniform_(-1.0, 1.0) * (math.pi / 2.0)
     )
 
     target_shuf = sharp_img[torch.randperm(B)]

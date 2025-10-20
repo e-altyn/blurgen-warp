@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 class TrainAugConfig:
     num_workers: int = 4
     batch_size: int = 32
-    patch_size: int = 128
+    patch_size: int = 256
     data_range: float = 2.0
     
     num_poses: int = 16
