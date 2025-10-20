@@ -147,13 +147,13 @@ class Normalize(object):
         data["sharp"] = ((data["sharp"] / 255) * 2 - 1.0).copy()
         data["blur"] = ((data["blur"] / 255) * 2 - 1.0).copy()
 
-        magnitude = data["flow"][:, :, 2] / 147
-        magnitude[magnitude > 1] = 1
-        data["flow"][:, :, 2] = magnitude
+        #magnitude = data["flow"][:, :, 2] / 147
+        #magnitude[magnitude > 1] = 1
+        #data["flow"][:, :, 2] = magnitude
         
         data["sharp"] = data["sharp"].transpose(2, 0, 1)
         data["blur"] = data["blur"].transpose(2, 0, 1)
-        data["flow"] = data["flow"].transpose(2, 0, 1)
+        #data["flow"] = data["flow"].transpose(2, 0, 1)
 
         return data
 
@@ -172,6 +172,7 @@ class GoProLoader(Dataset):
                 RandomCrop(patch_size, patch_size),
                 RandomFlip(),
                 RandomRotate90(),
+                Normalize(),
             ])
         else:
             self.transform = transforms.Compose([Normalize()])
