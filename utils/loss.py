@@ -92,7 +92,7 @@ class CompositeLoss(nn.Module):
         self.loss_lap = LaplacianRegularizationLoss()
         self.loss_geo = GeometricConsistencyLoss()
         self.loss_comp = nn.L1Loss()
-        self.weights = weights if weights else [1, 1, 0.1, 1]
+        self.weights = weights if weights else [1, 0.1, 1, 1]
     
     def forward(self, model, comp_net, blur_img, sharp_img, num_poses):    
         results = blur_synthesis(model(blur_img), blur_img, sharp_img, None, num_poses, comp_net)

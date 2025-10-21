@@ -24,14 +24,14 @@ from utils.loss import CompositeLoss
 
 # ========================= SETUP FUNCTIONS ========================= #
 
-def setup_training_components(model, comp_net, lr, weight_decay, num_epochs, loss_weights):
+def setup_training_components(model, comp_net, lr, weight_decay, total_iterations, loss_weights):
     """Initialize optimizer, scheduler, and loss function."""
     loss_fn = CompositeLoss(loss_weights)
     
     params = list(model.parameters()) + list(comp_net.parameters())
     optimizer = AdamW(params, lr=lr, weight_decay=weight_decay, fused=True)
 
-    scheduler = CosineAnnealingLR(optimizer, T_max=num_epochs, eta_min=1e-7)
+    scheduler = CosineAnnealingLR(optimizer, T_max=total_iterations, eta_min=1e-7)  
     
     return loss_fn, optimizer, scheduler, params
 
@@ -147,15 +147,12 @@ def save_best_val(save_dir, epoch, model, val_loss, val_lpips, val_ssim,
 
 # ========================= MAIN TRAINING LOOP ========================= #
 
-def train_aug(cfg, model, comp_net, train_loader, val_loader, num_epochs, 
-              lr, weight_decay, num_poses, val_freq, save_dir, loss_weights):
+def train_aug(model, optimizer, scheduler, params, 
+              loss_fn, comp_net, train_loader, val_loader, 
+              num_poses, val_freq, save_dir, num_epochs, metrics):
     
     rank, world_size, local_rank, device = get_env()
     
-    loss_fn, optimizer, scheduler, params = setup_training_components(
-        model, comp_net, lr, weight_decay, num_epochs, loss_weights
-    )
-    metrics = setup_metrics(cfg, device)
     best_val_loss = float("inf")
     
     for epoch in range(1, num_epochs + 1):
@@ -216,10 +213,6 @@ def setup_models(cfg, device, local_rank):
     model = DDP(model, device_ids=[local_rank])
     comp_net = DDP(comp_net, device_ids=[local_rank])
     
-    #if hasattr(torch, 'compile'):
-    #    model = torch.compile(model)
-    #    comp_net = torch.compile(comp_net)
-    
     return model, comp_net
 
 
@@ -233,9 +226,14 @@ def launch_train_aug(cfg):
     
     save_dir = os.path.join(cfg.checkpoint_dir, time.strftime("%Y-%m-%d-%H-%M-%S"))
     
+    loss_fn, optimizer, scheduler, params = setup_training_components(
+        model, comp_net, cfg.lr, cfg.weight_decay, 
+        cfg.num_epochs * len(train_loader), None
+    )
+    metrics = setup_metrics(cfg, device)
+    
     train_aug(
-        cfg=cfg, model=model, comp_net=comp_net, train_loader=train_loader, 
-        val_loader=val_loader, num_epochs=cfg.epochs, lr=cfg.lr, 
-        weight_decay=cfg.weight_decay, num_poses=cfg.num_poses, 
-        val_freq=cfg.val_freq, save_dir=save_dir, loss_weights=None # for now, set them in loss.py
+        model=model, optimizer=optimizer, scheduler=scheduler, params=params, loss_fn=loss_fn,
+        comp_net=comp_net, train_loader=train_loader, val_loader=val_loader, num_poses=cfg.num_poses, 
+        val_freq=cfg.val_freq, save_dir=save_dir, num_epochs=cfg.num_epochs, metrics=metrics
     )

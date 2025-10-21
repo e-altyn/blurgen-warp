@@ -12,7 +12,7 @@ class TrainAugConfig:
     
     lr: float = 1e-3
     weight_decay: float = 1e-3
-    epochs: int = 3000
+    num_epochs: int = 3000
     val_portion: float = 0.5
     
     checkpoint_dir: str = ".checkpoints"

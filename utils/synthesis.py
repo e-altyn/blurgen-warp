@@ -298,8 +298,8 @@ def blur_synthesis(model_output, blur_img, sharp_img, control_params=None,
 def blur_data_augmentation(blur_img, sharp_img, model):
     B = blur_img.size()[0]
     control_params = (
-        torch.empty(B, 1, 1, 1).uniform_(1.0, 2.0),
-        torch.empty(B, 1, 1, 1).uniform_(-1.0, 1.0) * (math.pi / 2.0)
+        torch.empty(B).uniform_(1.0, 2.0),
+        torch.empty(B).uniform_(-1.0, 1.0) * (math.pi / 2.0)
     )
 
     target_shuf = sharp_img[torch.randperm(B)]
