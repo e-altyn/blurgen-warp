@@ -62,7 +62,7 @@ def train_epoch(model, comp_net, train_loader, loss_fn, optimizer,
         blur_img = sample["blur"].to(device, non_blocking=True)
         sharp_img = sample["sharp"].to(device, non_blocking=True)
         
-        _, loss = loss_fn(model, comp_net, blur_img, sharp_img, num_poses)
+        _, loss, _ = loss_fn(model, comp_net, blur_img, sharp_img)
         loss_sum += loss.item()
         
         loss.backward()
@@ -77,19 +77,20 @@ def train_epoch(model, comp_net, train_loader, loss_fn, optimizer,
 
 # ========================= VALIDATION EPOCH ========================= #
 
-def validate_epoch(model, comp_net, val_loader, loss_fn, metrics, num_poses, device):
+def validate_epoch(model, comp_net, val_loader, loss_fn, metrics, device):
     model.eval()
     comp_net.eval()
     
     ssim_metric, lpips_metric, psnr_metric = metrics
     val_loss_sum = torch.tensor([0.0], device=device)
+    loss_vals_sum = torch.zeros(loss_fn.num_losses, device=device)
     
     with torch.no_grad():
         for sample in val_loader:
             blur_img = sample["blur"].to(device, non_blocking=True)
             sharp_img = sample["sharp"].to(device, non_blocking=True)
             
-            results, loss = loss_fn(model, comp_net, blur_img, sharp_img, num_poses)
+            results, loss, loss_vals = loss_fn(model, comp_net, blur_img, sharp_img)
             
             pred = torch.clamp(results['pred_blur'], -1, 1)
             del results
@@ -101,21 +102,25 @@ def validate_epoch(model, comp_net, val_loader, loss_fn, metrics, num_poses, dev
             del pred, blur_img, sharp_img
             
             val_loss_sum += loss.item()
+            loss_vals_sum += loss_vals
             del loss
     
     val_loss = sync_tensor(val_loss_sum / len(val_loader))
-    psnr = sync_torchmetrics(psnr_metric)
+    loss_vals = sync_tensor(loss_vals_sum / len(val_loader))
+    val_psnr = sync_torchmetrics(psnr_metric)
     val_ssim = sync_torchmetrics(ssim_metric)
     val_lpips = sync_torchmetrics(lpips_metric)
     
-    return val_loss, psnr, val_ssim, val_lpips
+    return val_loss, val_psnr, val_ssim, val_lpips, loss_vals
 
 
 # ========================= HELPER FUNCTIONS ========================= #
     
 def sync_tensor(tensor):
     dist.all_reduce(tensor, op=dist.ReduceOp.AVG)
-    return tensor.item()
+    if tensor.shape == (1,):
+        return tensor.item()
+    return tensor
 
 
 def sync_torchmetrics(metric):
@@ -129,12 +134,11 @@ def log_training(epoch, num_epochs, train_loss, elapsed_time, rank):
         print(f"[{epoch}/{num_epochs}] Loss: {train_loss:.4f} | Time: {elapsed_time:.2f}")
 
 
-def log_validation(epoch, num_epochs, val_loss, psnr, val_ssim, val_lpips, elapsed_time, rank):
+def log_validation(epoch, num_epochs, val_loss, psnr, val_ssim, val_lpips, elapsed_time, rank, loss_vals):
     if rank == 0:
-        print(
-            f"[Val {epoch}/{num_epochs}] Val Loss: {val_loss:.4f} | PSNR: {psnr:.2f} | "
-            f"LPIPS: {val_lpips:.4f} | SSIM: {val_ssim:.4f} | Time: {elapsed_time:.2f}"
-        )
+        print(f"[Val {epoch}/{num_epochs}] Val Loss: {val_loss:.4f} | PSNR: {psnr:.2f} | LPIPS: {val_lpips:.4f} | SSIM: {val_ssim:.4f} | Time: {elapsed_time:.2f}")
+        print('Loss terms:', end=' ')
+        print(*[f"{x.item():.4f}" for x in loss_vals], sep=' | ')
 
 
 def save_best_val(save_dir, epoch, model, val_loss, val_lpips, val_ssim, 
@@ -166,12 +170,12 @@ def train_aug(model, optimizer, scheduler, params,
         
         if epoch % val_freq == 0:
             val_start_time = time.time()
-            val_loss, psnr, val_ssim, val_lpips = validate_epoch(
-                model, comp_net, val_loader, loss_fn, metrics, num_poses, device
+            val_loss, psnr, val_ssim, val_lpips, loss_vals = validate_epoch(
+                model, comp_net, val_loader, loss_fn, metrics, device
             )
             log_validation(
                 epoch, num_epochs, val_loss, psnr, val_ssim, 
-                val_lpips, time.time() - val_start_time, rank
+                val_lpips, time.time() - val_start_time, rank, loss_vals
             )
             
             best_val_loss = save_best_val(

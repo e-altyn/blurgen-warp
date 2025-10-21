@@ -91,17 +91,19 @@ class CompositeLoss(nn.Module):
         self.loss_lap = LaplacianRegularizationLoss()
         self.loss_geo = GeometricConsistencyLoss()
         self.loss_comp = nn.L1Loss()
+        
         self.weights = weights if weights else [1, 0.1, 1, 1]
+        self.num_losses = len(self.weights)
     
-    def forward(self, model, comp_net, blur_img, sharp_img, num_poses):  
+    def forward(self, model, comp_net, blur_img, sharp_img):  
         model_output = model(blur_img)  
         results = blur_synthesis(model_output, sharp_img, None, comp_net)
         
-        total_loss = (
-            self.weights[0] * self.loss_blur(results['pred_blur'], blur_img) +
-            self.weights[1] * self.loss_lap(results['disps']) +
-            self.weights[2] * self.loss_geo(results['cycle_warped_img'], sharp_img) +
+        losses = torch.stack([
+            self.weights[0] * self.loss_blur(results['pred_blur'], blur_img),
+            self.weights[1] * self.loss_lap(results['disps']),
+            self.weights[2] * self.loss_geo(results['cycle_warped_img'], sharp_img),
             self.weights[3] * self.loss_comp(results['pred_blur_comp'], blur_img)
-        )
+        ])
         
-        return results, total_loss
+        return results, losses.sum(), losses.detach()

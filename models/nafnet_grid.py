@@ -249,7 +249,8 @@ class NAFNetGrid(nn.Module):
         rigid_disps = grid_2d_rigid - grid_2d_cano_expanded  # [B * self.num_poses, H, W, 2]
         
         # amp_local, phase_local = complex_to_polar(dense_pred)
-        amp_local, phase_local = dense_pred[..., 0], dense_pred[..., 1] + 1.0
+        amp_local = dense_pred[..., 0] + 1.0 # center around 1.0
+        phase_local = dense_pred[..., 1]
         amp_global, phase_global = complex_to_polar(rigid_disps)
         
         amp_local = amp_local.reshape(B, self.num_poses, H, W)

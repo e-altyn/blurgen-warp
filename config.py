@@ -16,7 +16,7 @@ class TrainAugConfig:
     val_portion: float = 0.5
     
     checkpoint_dir: str = ".checkpoints"
-    val_freq: int = 100
+    val_freq: int = 10
     train_seed: int = 42
     
     nafnet_grid_params: dict = field(default_factory=lambda: {
