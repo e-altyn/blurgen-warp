@@ -170,69 +170,19 @@ def normalize_fields(disps, align_corners=False):
     return grids
 
 
-def vec_field_gen(motion_results, img_size, control_params=None):
-    """Composing final displacement field from model's outputs and augmentation parameters.
+def scale_rotate(model_output, control_params):
+    B, num_poses, H, W, _ = model_output.shape
+    amp_control, phase_control = control_params
     
-    Args:
-        motion_results: tuple of (r, t, amp_local, phase_local)
-            - r: [B, num_poses * 3] rotation parameters
-            - t: [B, num_poses * 3] translation parameters
-            - displacements: [B, num_poses, h, w, 2] predicted in-frame displacements
-        control_params: tuple of (amp_control, phase_control)
-            - amp_control: [B]
-            - phase_control: [B]
-        img_size: torch.Size([B, C, H, W])
-        
-    Returns:
-        disps: [B, num_poses, H, W, 2]
-        didsp_inv: [B, num_poses, H, W, 2]
-    """
-    B, _, H, W = img_size
+    amp, phase = complex_to_polar(model_output)
+    amp = amp.reshape(B, num_poses, H, W)
+    phase = phase.reshape(B, num_poses, H, W)
     
-    r, t, displacements = motion_results
-    
-    if control_params is None:
-        amp_control = torch.ones([B, 1, 1, 1], device=r.device)
-        phase_control = torch.zeros([B, 1, 1, 1], device=r.device)
-    else:
-        amp_control = control_params[0][:, None, None, None]
-        phase_control = control_params[1][:, None, None, None]
-    
-    num_poses = displacements.shape[1]
-    
-    # Reshape r and t: [B, num_poses * 3] -> [B, num_poses, 3] -> [B * num_poses, 3]
-    r = r.reshape(B, num_poses, 3).reshape(B * num_poses, 3)
-    t = t.reshape(B, num_poses, 3).reshape(B * num_poses, 3)
-    
-    rigid_2d = make_c2w(r, t)  # [B * num_poses, 3, 4]
-    
-    grid_2d_rigid = F.affine_grid(
-        rigid_2d[:, :2, :3], 
-        [B * num_poses, img_size[1], H, W]
-    )  # [B * num_poses, H, W, 2]
-    
-    grid_2d_cano = canonical_2d(H, W, device=r.device, denormalized=False)  # [1, H, W, 2]
-    
-    # Compute residual
-    grid_2d_cano_expanded = grid_2d_cano.expand(B * num_poses, -1, -1, -1)
-    rigid_disps = grid_2d_rigid - grid_2d_cano_expanded  # [B * num_poses, H, W, 2]
-    
-    # Convert to polar coordinates
-    amp_local, phase_local = complex_to_polar(displacements)
-    amp_global, phase_global = complex_to_polar(rigid_disps)
-    
-    # Reshape back to [B, num_poses, H, W] for element-wise operations
-    amp_local = amp_local.reshape(B, num_poses, H, W)
-    phase_local = phase_local.reshape(B, num_poses, H, W)
-    amp_global = amp_global.reshape(B, num_poses, H, W)
-    phase_global = phase_global.reshape(B, num_poses, H, W)
-    
-    # Apply local and control parameters (fully vectorized)
     final_disps = polar_to_complex(
-        amp_global * amp_local * amp_control,
-        phase_global + phase_local + phase_control,
+        amp * amp_control,
+        phase + phase_control,
     )  # [B, num_poses, H, W, 2]
-    
+
     return final_disps
 
 
@@ -252,18 +202,14 @@ def grid_sample(img, disps):
     return F.grid_sample(img, grids, align_corners=False, mode='bilinear', padding_mode='zeros')
 
 
-def blur_synthesis(model_output, blur_img, sharp_img, control_params=None,
-                   num_poses=16, compensation_net=None):
+def blur_synthesis(model_output, sharp_img, control_params=None, compensation_net=None):
     B, C, H, W = sharp_img.shape
+    num_poses = model_output.shape[1]
     
-    if control_params is None:
-        device = blur_img.device
-        control_params = (
-            torch.ones(B, device=device),
-            torch.zeros(B, device=device)
-        )
-    
-    disps = vec_field_gen(model_output, sharp_img.shape, control_params)
+    if control_params:
+        disps = scale_rotate(model_output, control_params)
+    else:
+        disps = model_output
     
     # [B, C, H, W] -> [B * num_poses, C, H, W]
     sharp_img_expanded = sharp_img.unsqueeze(1).expand(B, num_poses, C, H, W)
@@ -275,8 +221,8 @@ def blur_synthesis(model_output, blur_img, sharp_img, control_params=None,
     ).reshape(B, num_poses, C, H, W)
     
     warped = torch.clamp(warped, -1, 1)
-    
     warped_reshaped = warped.reshape(B * num_poses, C, H, W)
+    
     cycle_warped = grid_sample(
         warped_reshaped, -disps_reshaped
     ).reshape(B, num_poses, C, H, W)

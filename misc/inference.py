@@ -6,7 +6,7 @@ import torch
 from PIL import Image
 
 # Import your modules
-from models.nafnet import NAFNetGrid
+from models.nafnet_grid import NAFNetGrid
 from utils.dataset import GoProLoader
 from utils.synthesis import blur_synthesis
 from utils.utils import load_ckpt, visualize_blur_trajectories, canonical_2d
@@ -83,17 +83,10 @@ def inference(model, sharp_img, blur_img=None, device='cuda', num_poses=16):
         blur_img = blur_img.to(device)
 
     # Run model to get motion parameters
-    r, t, displacements = model(blur_img)
+    model_output = model(blur_img)
 
     # Synthesize blur using the predicted motion
-    results = blur_synthesis(
-        (r, t, displacements),
-        blur_img,
-        sharp_img,
-        control_params=None,
-        num_poses=num_poses,
-        compensation_net=None
-    )
+    results = blur_synthesis(model_output, sharp_img, control_params=None, compensation_net=None)
 
     return results
 

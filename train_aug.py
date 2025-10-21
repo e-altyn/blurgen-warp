@@ -17,7 +17,8 @@ from torchmetrics.image import (
 )
 
 from utils.utils import get_env, save_ckpt
-from models.nafnet import NAFNetGrid, NAFNet
+from models.nafnet import NAFNet
+from models.nafnet_grid import NAFNetGrid
 from utils.dataset import GoProLoader
 from utils.loss import CompositeLoss
 
