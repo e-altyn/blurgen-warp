@@ -29,13 +29,9 @@ def setup_training_components(model, comp_net, lr, weight_decay, num_epochs, los
     loss_fn = CompositeLoss(loss_weights)
     
     params = list(model.parameters()) + list(comp_net.parameters())
-    # optimizer = AdamW(params, lr=lr, weight_decay=weight_decay, fused=True)
-    optimizer = AdamW([
-        {'params': model.parameters()},
-        {'params': comp_net.parameters()}
-    ], lr=lr, weight_decay=weight_decay, fused=True)
+    optimizer = AdamW(params, lr=lr, weight_decay=weight_decay, fused=True)
 
-    scheduler = CosineAnnealingLR(optimizer, T_max=num_epochs, eta_min=1e-6)
+    scheduler = CosineAnnealingLR(optimizer, T_max=num_epochs, eta_min=1e-7)
     
     return loss_fn, optimizer, scheduler, params
 

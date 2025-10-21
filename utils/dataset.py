@@ -1,6 +1,5 @@
 # based on https://github.com/plusgood-steven/ID-Blau/blob/main/dataloader.py
 
-import torch
 from torch.utils.data import Dataset
 import numpy as np
 import os
@@ -11,31 +10,33 @@ import random
 from PIL import Image
 
 
-def get_img(path, max_retries=5, delay=1):
-    for attempt in range(max_retries):
-        try:
-            img = Image.open(path)
-            if img.mode != "RGB":
-                img = img.convert("RGB")
-            return np.array(img, dtype=np.float32)
-        except BrokenPipeError:
-            print(f"[{attempt + 1}/{max_retries}] BrokenPipeError")
-            sleep(delay)
-            delay *= 2  # exponential backoff
-    raise RuntimeError(f"Failed to load {path} after {max_retries} retries due to BrokenPipeError")
+def retry(fn, attempts=10):
+    def wrapper(path):
+        delay = 1
+        for attempt in range(attempts):
+            try:
+                return fn(path)
+            except Exception as e:
+                print(f"[{attempt + 1}/{attempts}] {type(e).__name__}: {e}")
+                if attempt < attempts - 1:
+                    sleep(delay)
+                    delay *= 2
+        raise RuntimeError(f"Failed to load {path} after {attempts} attempts")
+    return wrapper
 
 
-def get_npy(path, max_retries=5, delay=1):
-    for attempt in range(max_retries):
-        try:
-            img = np.load(path).transpose(1, 2, 0)
-            return img.astype(np.float32)
-        except BrokenPipeError:
-            print(f"[{attempt + 1}/{max_retries}] BrokenPipeError")
-            sleep(delay)
-            delay *= 2  # exponential backoff
-    raise RuntimeError(f"Failed to load {path} after {max_retries} retries due to BrokenPipeError")
+@retry
+def get_img(path):
+    img = Image.open(path)
+    if img.mode != "RGB":
+        img = img.convert("RGB")
+    return np.array(img, dtype=np.float32)
 
+
+@retry
+def get_npy(path):
+    img = np.load(path).transpose(1, 2, 0)
+    return img.astype(np.float32)
 
 
 def rotation_matrix(angle):
