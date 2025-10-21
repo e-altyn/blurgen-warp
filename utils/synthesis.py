@@ -92,14 +92,14 @@ def polar_to_complex(amplitude, phase):
     return torch.stack((real, imag), dim=-1)
 
 
-def canonical_2d(H, W, device='cpu', in_pixel_space=True):
+def canonical_2d(H, W, device='cpu', denormalized=True):
     """Returns [1, H, W, 2] canonical grid.
     
     Args:
         H: Image height in pixels
         W: Image width in pixels
         device: Device to create tensors on
-        in_pixel_space: If True, returns pixel coordinates; if False, returns normalized [-1, 1]
+        denormalized: If True, returns pixel coordinates; if False, returns normalized [-1, 1]
     
     Returns:
         Tensor of shape [1, H, W, 2] with grid coordinates
@@ -107,7 +107,7 @@ def canonical_2d(H, W, device='cpu', in_pixel_space=True):
     identity = torch.tensor([[[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]], device=device)
     grid = F.affine_grid(identity, [1, 3, H, W], align_corners=False)
     
-    if in_pixel_space:
+    if denormalized:
         pixel_grid = torch.empty_like(grid)
         pixel_grid[..., 0] = (grid[..., 0] + 1) * W / 2
         pixel_grid[..., 1] = (grid[..., 1] + 1) * H / 2
@@ -116,7 +116,7 @@ def canonical_2d(H, W, device='cpu', in_pixel_space=True):
         return grid
 
 
-def grids2disps(grids, align_corners=False):
+def denormalize_fields(grids, align_corners=False):
     """
     Convert normalized grid coordinates to pixel coordinates.
     
@@ -143,7 +143,7 @@ def grids2disps(grids, align_corners=False):
     return pixel_coords
 
 
-def disps2grids(disps, align_corners=False):
+def normalize_fields(disps, align_corners=False):
     """
     Convert pixel coordinates to normalized grid coordinates.
     
@@ -206,12 +206,12 @@ def vec_field_gen(motion_results, img_size, control_params=None):
     
     rigid_2d = make_c2w(r, t)  # [B * num_poses, 3, 4]
     
-    grid_2d_rigid = grids2disps(F.affine_grid(
+    grid_2d_rigid = F.affine_grid(
         rigid_2d[:, :2, :3], 
         [B * num_poses, img_size[1], H, W]
-    ))  # [B * num_poses, H, W, 2]
+    )  # [B * num_poses, H, W, 2]
     
-    grid_2d_cano = canonical_2d(H, W, device=r.device)  # [1, H, W, 2]
+    grid_2d_cano = canonical_2d(H, W, device=r.device, denormalized=False)  # [1, H, W, 2]
     
     # Compute residual
     grid_2d_cano_expanded = grid_2d_cano.expand(B * num_poses, -1, -1, -1)
@@ -246,7 +246,8 @@ def grid_sample(img, disps):
         warped: [N, 3, H, W]
     """
     N, H, W, _ = disps.shape
-    grids = disps2grids(disps + canonical_2d(H, W, device=disps.device), align_corners=False)
+    #grids = normalize_fields(disps + canonical_2d(H, W, device=disps.device), align_corners=False)
+    grids = disps + canonical_2d(H, W, device=disps.device, denormalized=False)
     
     return F.grid_sample(img, grids, align_corners=False, mode='bilinear', padding_mode='zeros')
 

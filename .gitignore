@@ -1,7 +1,6 @@
 __pycache__
 */__pycache__
+assets/*
 
 .logs
 .checkpoints
-.gitmessage
-scripts

@@ -6,7 +6,7 @@ import torch.distributed as dist
 from PIL import Image
 import matplotlib.cm as cm
 
-from utils.synthesis import canonical_2d, grids2disps
+from utils.synthesis import canonical_2d, denormalize_fields
 
 
 def get_env():

@@ -9,14 +9,14 @@ from PIL import Image
 from models.nafnet import NAFNetGrid
 from utils.dataset import GoProLoader
 from utils.synthesis import blur_synthesis
-from utils.utils import load_ckpt, visualize_blur_trajectories
+from utils.utils import load_ckpt, visualize_blur_trajectories, canonical_2d
 from config import TrainAugConfig
 
 
 def load_model(checkpoint_path, cfg, device='cuda', num_poses=16):
     """Load pretrained model from checkpoint."""
     # Initialize model with same config as training
-    model = NAFNetGrid(**cfg().nafnet_grid_params)
+    model = NAFNetGrid(**cfg.nafnet_grid_params)
     model = model.to(device)
 
     # Load checkpoint
@@ -98,7 +98,7 @@ def inference(model, sharp_img, blur_img=None, device='cuda', num_poses=16):
     return results
 
 
-def main():
+def run_inference(args):
     parser = argparse.ArgumentParser(description='Blur Generation Inference')
     parser.add_argument('--checkpoint', type=str, required=True,
                         help='Path to model checkpoint')
@@ -111,28 +111,29 @@ def main():
     parser.add_argument('--dataset_mode', type=str, default='test',
                         choices=['train', 'test'],
                         help='Dataset mode to use if --dataset is set')
-    parser.add_argument('--output', type=str, default='output.png',
+    parser.add_argument('--output', type=str, default='assets/generated_blur.png',
                         help='Output path for predicted blur image')
-    parser.add_argument('--trajectory_output', type=str, default='trajectories.png',
+    parser.add_argument('--trajectory_output', type=str, default='assets/trajectories.png',
                         help='Output path for visualized trajectories')
     parser.add_argument('--num_poses', type=int, default=16,
                         help='Number of poses for blur synthesis')
     parser.add_argument('--device', type=str, default='cuda',
                         choices=['cuda', 'cpu'],
                         help='Device to run inference on')
-    parser.add_argument('--seed', type=int, default=42,
+    parser.add_argument('--seed', type=int, default=0,
                         help='Random seed for dataset sampling')
-    parser.add_argument('--trajectory_spacing', type=int, default=20,
+    parser.add_argument('--trajectory_spacing', type=int, default=32,
                         help='Spacing between trajectory points in visualization')
     parser.add_argument('--trajectory_colormap', type=str, default='viridis',
                         help='Colormap for trajectory visualization (or None for grayscale)')
 
-    args = parser.parse_args()
+    args = parser.parse_args(args)
 
     # Set random seed
-    random.seed(args.seed)
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
+    if args.seed != 0:
+        random.seed(args.seed)
+        np.random.seed(args.seed)
+        torch.manual_seed(args.seed)
 
     # Load model
     print("Loading model...")
@@ -142,7 +143,7 @@ def main():
     # Load images
     if args.dataset:
         print(f"Loading random image from {args.dataset_mode} dataset...")
-        dataset = GoProLoader(mode=args.dataset_mode, patch_size=None, portion=1.0)
+        dataset = GoProLoader(mode=args.dataset_mode, patch_size=256, portion=1.0)
 
         # Get random sample
         idx = random.randint(0, len(dataset) - 1)
@@ -184,13 +185,14 @@ def main():
 
     # Visualize and save trajectories
     print("Visualizing trajectories...")
-    disps_np = displacements.cpu().numpy()[0]  # Remove batch dimension [num_poses, H, W, 2]
+    _, _, H, W, _ = displacements.shape
+    grids_np = (displacements.cpu() + canonical_2d(H, W, device='cpu', denormalized=False))[0].numpy()
 
     # Use colormap if specified, otherwise None for grayscale
     colormap = args.trajectory_colormap if args.trajectory_colormap.lower() != 'none' else None
 
     visualize_blur_trajectories(
-        disps_np, 
+        grids_np, 
         output_path=args.trajectory_output,
         spacing=args.trajectory_spacing,
         colormap=colormap
@@ -198,7 +200,3 @@ def main():
     print(f"Saved trajectory visualization to {args.trajectory_output}")
 
     print("Inference complete!")
-
-
-if __name__ == "__main__":
-    main()
