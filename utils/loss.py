@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from utils.synthesis import canonical_2d, blur_synthesis
+from utils.synthesis import blur_synthesis, disps2grids
 
     
 class LaplacianRegularizationLoss(nn.Module):
@@ -11,17 +11,19 @@ class LaplacianRegularizationLoss(nn.Module):
         super().__init__()
     
     def forward(self, disps):
-        # disps: [B, num_poses, H, W, 2]
+        # would be better to convert to pixel space and find new coef
+        grids = disps2grids(disps)
         
-        center = disps[..., 1:-1, 1:-1, :]
-        up     = disps[...,  :-2, 1:-1, :]
-        down   = disps[...,   2:, 1:-1, :]
-        left   = disps[..., 1:-1,  :-2, :]
-        right  = disps[..., 1:-1,   2:, :]
+        center = grids[..., 1:-1, 1:-1, :]
+        up     = grids[..., :-2,  1:-1, :]
+        down   = grids[..., 2:,   1:-1, :]
+        left   = grids[..., 1:-1, :-2,  :]
+        right  = grids[..., 1:-1, 2:,   :]
         
         laplacian = 4 * center - (up + down + left + right)
         
-        return torch.mean(laplacian**2)
+        # sum for (B, num_poses)
+        return torch.mean(laplacian**2, dim=(2,3,4)).sum()
 
 
 
