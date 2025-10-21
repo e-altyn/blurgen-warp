@@ -227,8 +227,7 @@ def launch_train_aug(cfg):
     save_dir = os.path.join(cfg.checkpoint_dir, time.strftime("%Y-%m-%d-%H-%M-%S"))
     
     loss_fn, optimizer, scheduler, params = setup_training_components(
-        model, comp_net, cfg.lr, cfg.weight_decay, 
-        cfg.num_epochs * len(train_loader), None
+        model, comp_net, cfg.lr, cfg.weight_decay, cfg.num_epochs, None
     )
     metrics = setup_metrics(cfg, device)
     
