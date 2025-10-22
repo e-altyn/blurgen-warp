@@ -22,7 +22,7 @@ class LaplacianRegularizationLoss(nn.Module):
         
         laplacian = 4 * center - (up + down + left + right)
         
-        # sum for (B, num_poses)
+        # sum for (num_poses, H, W, 2)
         return torch.mean(laplacian**2, dim=0).sum()
 
 
@@ -92,7 +92,7 @@ class CompositeLoss(nn.Module):
         self.loss_geo = GeometricConsistencyLoss()
         self.loss_comp = nn.L1Loss()
         
-        self.weights = weights if weights else [1, 0.1, 1, 1]
+        self.weights = weights if weights else [1, 0, 0, 0]
         self.num_losses = len(self.weights)
     
     def forward(self, model, comp_net, blur_img, sharp_img):  

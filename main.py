@@ -6,7 +6,7 @@ import torch.distributed as dist
 
 from config import TrainAugConfig
 from train_aug import launch_train_aug
-from misc.inference import run_inference
+from inference import run_inference
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

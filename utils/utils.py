@@ -92,12 +92,12 @@ def get_npy(path):
 
 def visualize_blur_trajectories(disps, output_path=None, spacing=20, colormap=None):
     """
-    Visualize blur trajectories from normalized grids with optional gradient coloring.
+    Visualize blur trajectories from pixel displacements with optional gradient coloring.
     
     Parameters:
     -----------
-    grids : np.ndarray
-        Normalized grids of shape [num_poses, H, W, 2] in [-1, 1] space
+    disps : np.ndarray
+        Denormalized disps of shape [num_poses, H, W, 2] in [0, H]x[0, W] space
         Last dimension contains (x, y) coordinates in normalized space
     output_path : str
         Path to save the visualization
@@ -183,3 +183,11 @@ def visualize_blur_trajectories(disps, output_path=None, spacing=20, colormap=No
             Image.fromarray(output_image, mode='L').save(output_path)
     
     return output_image
+
+
+def calculate_psnr(pred, target, data_range=2.0):
+    mse = torch.mean((pred - target) ** 2)
+    if mse < 1e-10:
+        return torch.tensor(100.0, device=pred.device)
+    psnr = 10 * torch.log10((data_range ** 2) / mse)
+    return psnr

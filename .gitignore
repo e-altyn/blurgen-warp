@@ -1,6 +1,7 @@
 __pycache__
 */__pycache__
-assets/*
 
-.logs
 .checkpoints
+.logs
+.slurm
+assets
