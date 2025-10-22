@@ -92,7 +92,7 @@ class CompositeLoss(nn.Module):
         self.loss_geo = GeometricConsistencyLoss()
         self.loss_comp = nn.L1Loss()
         
-        self.weights = weights if weights else [1, 0, 0, 0]
+        self.weights = weights if weights else [1, 0.1, 1, 1]
         self.num_losses = len(self.weights)
     
     def forward(self, model, comp_net, blur_img, sharp_img):  

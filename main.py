@@ -7,6 +7,7 @@ import torch.distributed as dist
 from config import TrainAugConfig
 from train_aug import launch_train_aug
 from inference import run_inference
+from misc.plot_loss_terms import plot
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -20,3 +21,5 @@ if __name__ == "__main__":
         dist.destroy_process_group()
     elif args.mode == "inference":
         run_inference(remaining_args)
+    elif args.mode == "plot":
+        plot(remaining_args)

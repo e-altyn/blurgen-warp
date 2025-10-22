@@ -194,8 +194,7 @@ def run_inference(args):
 
     # Load model
     print("Loading model...")
-    model = load_model(args.checkpoint, cfg=TrainAugConfig(),
-                       device=args.device)
+    model = load_model(args.checkpoint, cfg=TrainAugConfig(), device=args.device)
 
     # Load images
     if args.dataset:
@@ -207,8 +206,8 @@ def run_inference(args):
         sample = dataset[idx]
 
         sharp_img = torch.from_numpy(sample['sharp']).unsqueeze(0)
-        #blur_img = torch.from_numpy(sample['blur']).unsqueeze(0)
-        blur_img = sharp_img
+        blur_img = torch.from_numpy(sample['blur']).unsqueeze(0)
+        # blur_img = sharp_img
 
         print(f"Loaded sample {idx} from dataset")
         print(f"Image shape: {sharp_img.shape}")
@@ -273,8 +272,3 @@ def run_inference(args):
     print(f"  PSNR: {metrics['psnr']:.2f} dB")
     print(f"  MSE: {metrics['mse']:.6f}")
     print(f"  MAE: {metrics['mae']:.4f}")
-
-
-if __name__ == "__main__":
-    import sys
-    run_inference(sys.argv[1:])
