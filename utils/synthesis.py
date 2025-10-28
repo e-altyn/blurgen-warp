@@ -92,14 +92,15 @@ def polar_to_complex(amplitude, phase):
     return torch.stack((real, imag), dim=-1)
 
 
-def canonical_2d(H, W, device='cpu', denormalized=True):
+def canonical_2d(H, W, device='cpu', normalized=True):
     """Returns [1, H, W, 2] canonical grid.
     
+    Assumes align_corners = False.
     Args:
         H: Image height in pixels
         W: Image width in pixels
         device: Device to create tensors on
-        denormalized: If True, returns pixel coordinates; if False, returns normalized [-1, 1]
+        normalized: If True, returns normalized [-1, 1] coordinates; if False, returns pixel ones
     
     Returns:
         Tensor of shape [1, H, W, 2] with grid coordinates
@@ -107,18 +108,18 @@ def canonical_2d(H, W, device='cpu', denormalized=True):
     identity = torch.tensor([[[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]], device=device)
     grid = F.affine_grid(identity, [1, 3, H, W], align_corners=False)
     
-    if denormalized:
-        pixel_grid = torch.empty_like(grid)
-        pixel_grid[..., 0] = (grid[..., 0] + 1) * W / 2
-        pixel_grid[..., 1] = (grid[..., 1] + 1) * H / 2
-        return pixel_grid
-    else:
+    if normalized:
         return grid
+    else:
+        pixel_grid = torch.empty_like(grid)
+        pixel_grid[..., 0] = (grid[..., 0] + 1) * W / 2 - 0.5
+        pixel_grid[..., 1] = (grid[..., 1] + 1) * H / 2 - 0.5
+        return pixel_grid
 
 
 def denormalize_fields(grids, align_corners=False):
     """
-    Convert normalized grid coordinates to pixel coordinates.
+    Convert normalized grid coordinates to pixel coordinates. 
     
     Args:
         grids: Tensor of shape [..., H, W, 2] with normalized coordinates in range [-1, 1]
@@ -137,8 +138,9 @@ def denormalize_fields(grids, align_corners=False):
         pixel_coords[..., 1] = (grids[..., 1] + 1) * (H - 1) / 2
     else:
         # Map [-1, 1] to [0, W] for x and [0, H] for y
-        pixel_coords[..., 0] = (grids[..., 0] + 1) * W / 2
-        pixel_coords[..., 1] = (grids[..., 1] + 1) * H / 2
+        pixel_coords[..., 0] = (grids[..., 0] + 1) * W / 2 - 0.5
+        pixel_coords[..., 1] = (grids[..., 1] + 1) * H / 2 - 0.5
+
     
     return pixel_coords
 
@@ -164,9 +166,9 @@ def normalize_fields(disps, align_corners=False):
         grids[..., 1] = 2 * disps[..., 1] / (H - 1) - 1
     else:
         # Map [0, W] to [-1, 1] for x and [0, H] to [-1, 1] for y
-        grids[..., 0] = 2 * disps[..., 0] / W - 1
-        grids[..., 1] = 2 * disps[..., 1] / H - 1
-    
+        grids[..., 0] = 2 * (disps[..., 0] + 0.5) / W - 1
+        grids[..., 1] = 2 * (disps[..., 1] + 0.5) / H - 1
+
     return grids
 
 
@@ -191,13 +193,13 @@ def grid_sample(img, disps):
     
     Args:
         img: [N, 3, H, W]
-        disps: [N, H, W, 2]
+        disps: Normalized to [-1, 1] displacemets [N, H, W, 2]
     Returns:
         warped: [N, 3, H, W]
     """
     N, H, W, _ = disps.shape
     #grids = normalize_fields(disps + canonical_2d(H, W, device=disps.device), align_corners=False)
-    grids = disps + canonical_2d(H, W, device=disps.device, denormalized=False)
+    grids = disps + canonical_2d(H, W, device=disps.device, normalized=True)
     
     return F.grid_sample(img, grids, align_corners=False, mode='bilinear', padding_mode='zeros')
 

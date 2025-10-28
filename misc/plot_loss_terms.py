@@ -22,7 +22,6 @@ def plot(args):
     # Extract loss terms data
     # Pattern: "Loss terms: <value1> | <value2> | <value3> | <value4>"
     loss_terms_pattern = r'\[Val (\d+)/\d+\][^\n]*\nLoss terms: ([\d.]+) \| ([\d.]+) \| ([\d.]+) \| ([\d.]+)'
-
     matches = re.findall(loss_terms_pattern, content)
 
     # Convert to structured data

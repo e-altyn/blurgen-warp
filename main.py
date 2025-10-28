@@ -6,7 +6,7 @@ import torch.distributed as dist
 
 from config import TrainAugConfig
 from train_aug import launch_train_aug
-from inference import run_inference
+from misc.inference import run_inference
 from misc.plot_loss_terms import plot
 
 if __name__ == "__main__":

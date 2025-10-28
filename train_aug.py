@@ -135,10 +135,9 @@ def log_training(epoch, num_epochs, train_loss, elapsed_time, rank):
 
 def log_validation(epoch, num_epochs, val_loss, psnr, val_ssim, val_lpips, elapsed_time, rank, loss_vals):
     if rank == 0:
-        print(f"[Val {epoch}/{num_epochs}]")
-        print(f"[Loss: {val_loss:.4f} | PSNR: {psnr:.2f} | LPIPS: {val_lpips:.4f} | SSIM: {val_ssim:.4f}] Time: {elapsed_time:.2f}")
-        print('Loss terms: [', end='')
-        print(*[f"{x.item():.4f}" for x in loss_vals], sep=' | ', end=']\n')
+        print(f"[Val {epoch}/{num_epochs}] Loss: {val_loss:.4f} | PSNR: {psnr:.2f} | LPIPS: {val_lpips:.4f} | SSIM: {val_ssim:.4f}] Time: {elapsed_time:.2f}")
+        print('Loss terms:', end=' ')
+        print(*[f"{x.item():.4f}" for x in loss_vals], sep=' | ')
 
 
 def save_best_val(save_dir, epoch, model, val_loss, val_lpips, val_ssim, 

@@ -238,13 +238,12 @@ class NAFNetGrid(nn.Module):
         
         rigid_2d = make_c2w(r, t)  # [B * self.num_poses, 3, 4]
         
+        # normalized rigid disps
         grid_2d_rigid = F.affine_grid(
             rigid_2d[:, :2, :3], 
             [B * self.num_poses, 3, H, W]
         )  # [B * self.num_poses, H, W, 2]
-        
-        grid_2d_cano = canonical_2d(H, W, device=r.device, denormalized=False)  # [1, H, W, 2]
-        
+        grid_2d_cano = canonical_2d(H, W, device=r.device, normalized=True)  # [1, H, W, 2]
         grid_2d_cano_expanded = grid_2d_cano.expand(B * self.num_poses, -1, -1, -1)
         rigid_disps = grid_2d_rigid - grid_2d_cano_expanded  # [B * self.num_poses, H, W, 2]
         
