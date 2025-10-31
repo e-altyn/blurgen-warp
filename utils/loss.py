@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from utils.synthesis import blur_synthesis, normalize_fields
+from utils.synthesis import blur_synthesis, canonical_2d
 
     
 class LaplacianRegularizationLoss(nn.Module):
@@ -10,9 +10,13 @@ class LaplacianRegularizationLoss(nn.Module):
     def __init__(self):
         super().__init__()
     
-    def forward(self, grids):
+    def forward(self, disps):
         # would be better to convert to pixel space and find new coef
-        #grids = normalize_fields(disps)
+        
+        _, _, H, W, _ = disps.shape
+         
+        grids = disps + canonical_2d(H, W, disps.device, normalized=True)
+        grids = (torch.clamp(grids, -1.0, 1.0) + 1.0) / 2.0
         
         center = grids[..., 1:-1, 1:-1, :]
         up     = grids[..., :-2,  1:-1, :]

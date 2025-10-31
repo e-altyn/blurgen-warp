@@ -222,7 +222,7 @@ def blur_synthesis(model_output, sharp_img, control_params=None, compensation_ne
         sharp_img_expanded, disps_reshaped
     ).reshape(B, num_poses, C, H, W)
     
-    warped = torch.clamp(warped, -1, 1)
+    # warped = torch.clamp(warped, -1, 1)
     warped_reshaped = warped.reshape(B * num_poses, C, H, W)
     
     cycle_warped = grid_sample(
